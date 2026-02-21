@@ -1,3 +1,169 @@
+--- CONTESTO PROGETTO ESP32 ---
+
+
+--- FILE: ./platformio.ini ---
+;PlatformIO Project Configuration File
+;
+;   Build options: build flags, source filter
+;   Upload options: custom upload port, speed and extra flags
+;   Library options: dependencies, extra library storages
+;   Advanced options: extra scripting
+;
+; Please visit documentation for the other options and examples
+; https://docs.platformio.org/page/projectconf.html
+
+; PlatformIO Project Configuration File
+;
+;   Build options: build flags, source filter
+;   Upload options: custom upload port, speed and extra flags
+;   Library options: dependencies, extra library storages
+;   Advanced options: extra scripting
+;
+; Please visit documentation for the other options and examples
+; https://docs.platformio.org/page/projectconf.html
+
+
+
+; [env:esp32_littleFS]
+[env:esp32]
+    # # sembra funzionare con AzDelivery ESP32-WROOM 32
+    ; platform = espressif32@^6.8.0   #; 6.0.0. or the latest stable version (per ledcSetup())
+    platform = espressif32
+    framework = arduino
+    board = esp32dev
+    upload_speed = 460800
+    monitor_speed = 115200
+    monitor_filters = colorize
+    upload_port = /dev/ttyUSB0
+    # board_build.filesystem = littlefs
+    # extra_scripts = presscontrol_extra_flags.py
+
+
+
+    # -------------------------------------
+    # ref: https://docs.platformio.org/en/stable/search.html?q=lib_deps&check_keywords=yes&area=default
+    #   per le mie librerie posso ettere il path di github:
+    #       https://github.com/Loreton/wifiManager.git
+    # -------------------------------------
+    lib_deps =
+        ; paulstoffregen/OneWire @ ^2.3.8
+        ; milesburton/DallasTemperature @ ^4.0.6
+        ; Aircoookie/Espalexa @ ^2.7.0
+        ; witnessmenow/UniversalTelegramBot @ ^1.3.0
+        fbiego/ESP32Time @ ^2.0.6
+        ; https://github.com/Loreton/wifiManager.git
+        ; cotestatnt/AsyncTelegram2 @ ^2.1.8
+
+
+    # -------------------------------------
+    # ref: https://docs.platformio.org/en/stable/projectconf/sections/env/options/build/build_flags.html
+    # -------------------------------------
+    build_flags=
+        # -D LOG_LEVEL=${sysenv.LOG_LEVEL}
+        ${sysenv.ADDITIONAL_BUILD_FLAGS}
+        ; -I ./include
+        -I /home/loreto/filu/lnEnv/config/envars/include # per ssid.h e telegram_bot.h  @ln_ssid_credentials.h
+        ; -D __ln_MODULE_DEBUG_TEST__
+
+
+
+    ; ref: https://docs.platformio.org/en/stable/projectconf/sections/env/options/library/lib_ignore.html
+    lib_ignore =
+        @testArea # solo nome del folder senza il path
+        examples # solo nome del folder senza il path
+        samples # solo nome del folder senza il path
+
+
+    # -------------------------------------
+    # inserire le librerie esterne o personali da includere nella compilazione
+    # considerare che pr i relative path, la base_dir --> same level of src
+    # -------------------------------------
+    lib_extra_dirs =
+        ; ../lnEsp32Libraries
+
+
+    # -------------------------------------
+    # ref: https://docs.platformio.org/en/stable/projectconf/sections/env/options/build/build_src_filter.html
+    # inserire tutti i percorsi che si desidera inserire nel codice
+    # considerare che per i relative path, la base_dir --> src
+    # -------------------------------------
+    build_src_filter =
+        ; +<./test>
+
+
+
+
+
+
+
+[platformio]
+    ; src_dir = .
+    # ref: https://docs.platformio.org/en/latest/projectconf/sections/platformio/options/directory/lib_dir.html
+    # default_envs = nodemcu32
+    default_envs = esp32
+    # default_envs = esp32
+
+
+
+
+--- FILE: ./src/WiFiManager.h ---
+//
+// updated by ...: Loreto Notarantonio
+// Date .........: 13-09-2025 17.32.34
+//
+
+
+#pragma once
+
+#include <Arduino.h>
+#include <WiFi.h>
+#include <vector>
+
+class WiFiManagerNB {
+    public:
+        WiFiManagerNB();
+
+        void init(uint32_t scanIntervalWhenConnected,
+                  uint32_t scanIntervalWhenNotConnected,
+                  uint32_t maxWifiTimeout,
+                  int rssiGap);
+
+        void update();
+        void addSSID(const char* ssid, const char* password);
+
+        bool isConnected();
+        String getConnectedSSID();
+
+    private:
+        static WiFiManagerNB* s_instance;
+        static void WiFiEventHandler(WiFiEvent_t event, WiFiEventInfo_t info);
+
+        struct WifiCredential {
+            String ssid;
+            String password;
+        };
+
+        std::vector<WifiCredential> m_credentials;
+
+        uint32_t m_scanIntervalWhenConnected;
+        uint32_t m_scanIntervalWhenNotConnected;
+        uint32_t m_maxWifiTimeout;
+
+        uint32_t m_lastScanTime = 0;
+        uint32_t m_lastConnectedTime = 0;
+
+        int m_rssiGap;
+        String m_currentSSID;
+
+        void startScan();
+        void handleScanResult();
+        void connectToBestNetwork();
+        void onWiFiEvent(WiFiEvent_t event);
+};
+
+
+
+--- FILE: ./src/WiFiManager.cpp ---
 //
 // updated by ...: Loreto Notarantonio
 // Date .........: 20-02-2026 17.16.03
@@ -183,3 +349,6 @@ bool WiFiManagerNB::isConnected() {
 String WiFiManagerNB::getConnectedSSID() {
     return m_currentSSID;
 }
+
+
+USER QUESTION: Analizza il codice

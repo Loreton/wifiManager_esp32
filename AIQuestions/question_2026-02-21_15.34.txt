@@ -1,0 +1,448 @@
+--- CONTESTO PROGETTO ESP32 ---
+E' possibile modificare gli oggetti String in char * ed effettuare le modifiche che ritieni importanti?
+
+--- FILE: ./platformio.ini ---
+;PlatformIO Project Configuration File
+;
+;   Build options: build flags, source filter
+;   Upload options: custom upload port, speed and extra flags
+;   Library options: dependencies, extra library storages
+;   Advanced options: extra scripting
+;
+; Please visit documentation for the other options and examples
+; https://docs.platformio.org/page/projectconf.html
+
+; PlatformIO Project Configuration File
+;
+;   Build options: build flags, source filter
+;   Upload options: custom upload port, speed and extra flags
+;   Library options: dependencies, extra library storages
+;   Advanced options: extra scripting
+;
+; Please visit documentation for the other options and examples
+; https://docs.platformio.org/page/projectconf.html
+
+
+
+; [env:esp32_littleFS]
+[env:esp32]
+    # # sembra funzionare con AzDelivery ESP32-WROOM 32
+    ; platform = espressif32@^6.8.0   #; 6.0.0. or the latest stable version (per ledcSetup())
+    platform = espressif32
+    framework = arduino
+    board = esp32dev
+    upload_speed = 460800
+    monitor_speed = 115200
+    monitor_filters = colorize
+    upload_port = /dev/ttyUSB0
+    # board_build.filesystem = littlefs
+    # extra_scripts = presscontrol_extra_flags.py
+
+
+
+    # -------------------------------------
+    # ref: https://docs.platformio.org/en/stable/search.html?q=lib_deps&check_keywords=yes&area=default
+    #   per le mie librerie posso ettere il path di github:
+    #       https://github.com/Loreton/wifiManager.git
+    # -------------------------------------
+    lib_deps =
+        ; paulstoffregen/OneWire @ ^2.3.8
+        ; milesburton/DallasTemperature @ ^4.0.6
+        ; Aircoookie/Espalexa @ ^2.7.0
+        ; witnessmenow/UniversalTelegramBot @ ^1.3.0
+        fbiego/ESP32Time @ ^2.0.6
+        ; https://github.com/Loreton/wifiManager.git
+        ; cotestatnt/AsyncTelegram2 @ ^2.1.8
+
+
+    # -------------------------------------
+    # ref: https://docs.platformio.org/en/stable/projectconf/sections/env/options/build/build_flags.html
+    # -------------------------------------
+    build_flags=
+        # -D LOG_LEVEL=${sysenv.LOG_LEVEL}
+        ${sysenv.ADDITIONAL_BUILD_FLAGS}
+        ; -I ./include
+        -I /home/loreto/filu/lnEnv/config/envars/include # per ssid.h e telegram_bot.h  @ln_ssid_credentials.h
+        ; -D __ln_MODULE_DEBUG_TEST__
+
+
+
+    ; ref: https://docs.platformio.org/en/stable/projectconf/sections/env/options/library/lib_ignore.html
+    lib_ignore =
+        @testArea # solo nome del folder senza il path
+        examples # solo nome del folder senza il path
+        samples # solo nome del folder senza il path
+
+
+    # -------------------------------------
+    # inserire le librerie esterne o personali da includere nella compilazione
+    # considerare che pr i relative path, la base_dir --> same level of src
+    # -------------------------------------
+    lib_extra_dirs =
+        ; ../lnEsp32Libraries
+
+
+    # -------------------------------------
+    # ref: https://docs.platformio.org/en/stable/projectconf/sections/env/options/build/build_src_filter.html
+    # inserire tutti i percorsi che si desidera inserire nel codice
+    # considerare che per i relative path, la base_dir --> src
+    # -------------------------------------
+    build_src_filter =
+        ; +<./test>
+
+
+
+
+
+
+
+[platformio]
+    ; src_dir = .
+    # ref: https://docs.platformio.org/en/latest/projectconf/sections/platformio/options/directory/lib_dir.html
+    # default_envs = nodemcu32
+    default_envs = esp32
+    # default_envs = esp32
+
+
+
+
+--- FILE: ./src/WiFiManager.h ---
+//
+// updated by ...: Loreto Notarantonio
+// Date .........: 13-09-2025 17.32.34
+//
+
+
+#pragma once
+
+#include <Arduino.h>
+#include <WiFi.h>
+#include <vector>
+
+class WiFiManagerNB {
+    public:
+        WiFiManagerNB();
+
+        void init(uint32_t scanIntervalWhenConnected,
+                  uint32_t scanIntervalWhenNotConnected,
+                  uint32_t maxWifiTimeout,
+                  int rssiGap);
+
+        void update();
+        void addSSID(const char* ssid, const char* password);
+
+        bool isConnected();
+        String getConnectedSSID();
+
+    private:
+        static WiFiManagerNB* s_instance;
+        static void WiFiEventHandler(WiFiEvent_t event, WiFiEventInfo_t info);
+
+        struct WifiCredential {
+            String ssid;
+            String password;
+        };
+
+        std::vector<WifiCredential> m_credentials;
+
+        uint32_t m_scanIntervalWhenConnected;
+        uint32_t m_scanIntervalWhenNotConnected;
+        uint32_t m_maxWifiTimeout;
+
+        uint32_t m_lastScanTime = 0;
+        uint32_t m_lastConnectedTime = 0;
+
+        int m_rssiGap;
+        String m_currentSSID;
+
+        void startScan();
+        void handleScanResult();
+        void connectToBestNetwork();
+        void onWiFiEvent(WiFiEvent_t event);
+};
+
+
+
+--- FILE: ./src/WiFiManager.cpp ---
+//
+// updated by ...: Loreto Notarantonio
+// Date .........: 20-02-2026 17.16.03
+//
+
+
+// #include "lnLogger_Class.h"
+
+#include "WiFiManager.h"
+
+WiFiManagerNB::WiFiManagerNB() {}
+WiFiManagerNB* WiFiManagerNB::s_instance = nullptr;
+
+void WiFiManagerNB::init(uint32_t scanIntervalWhenConnected, uint32_t scanIntervalWhenNotConnected, uint32_t maxWifiTimeout, int rssiGap) {
+    m_scanIntervalWhenConnected = scanIntervalWhenConnected;
+    m_scanIntervalWhenNotConnected = scanIntervalWhenNotConnected;
+    m_maxWifiTimeout = maxWifiTimeout;
+    m_rssiGap = rssiGap;
+
+    WiFi.mode(WIFI_STA);
+    WiFi.disconnect(true);
+
+    s_instance = this;
+    WiFi.onEvent(WiFiEventHandler);
+
+    startScan();
+}
+
+
+void WiFiManagerNB::WiFiEventHandler(WiFiEvent_t event, WiFiEventInfo_t info) {
+    if (s_instance) {
+        s_instance->onWiFiEvent(event);
+    }
+}
+
+
+
+
+
+// =======================================================
+//  wifiManager.addSSID("Casetta", "PASSWORD1");
+//  wifiManager.addSSID("SSID2", "PASSWORD2");
+//  wifiManager.addSSID("SSID3", "PASSWORD3");
+// =======================================================
+void WiFiManagerNB::addSSID(const char* ssid, const char* password) {
+    Serial.println(ssid);
+    WifiCredential cred;
+    cred.ssid = ssid;
+    cred.password = password;
+    m_credentials.push_back(cred);
+}
+
+void WiFiManagerNB::update() {
+    uint32_t now = millis();
+
+    bool connected = (WiFi.status() == WL_CONNECTED);
+
+    if (connected) {
+        m_lastConnectedTime = now;
+    }
+    else {
+        if (now - m_lastConnectedTime > m_maxWifiTimeout) {
+            Serial.println("Max WiFi timeout reached. Restarting scan.");
+            startScan();
+            m_lastConnectedTime = now;
+        }
+    }
+
+    uint32_t interval = connected ? m_scanIntervalWhenConnected : m_scanIntervalWhenNotConnected;
+    if (now - m_lastScanTime >= interval) {
+        m_lastScanTime = now;
+        startScan();
+    }
+
+    int scanStatus = WiFi.scanComplete();
+    if (scanStatus >= 0) {
+        handleScanResult();
+        WiFi.scanDelete();
+    }
+}
+
+void WiFiManagerNB::startScan() {
+    if (WiFi.scanComplete() == -2) {// no scan running
+        Serial.println("Starting scan....");
+        WiFi.scanNetworks(true); // async
+    }
+}
+
+void WiFiManagerNB::handleScanResult() {
+    int n = WiFi.scanComplete();
+    if (n <= 0)
+        return;
+
+    int bestRSSI = -1000;
+    String bestSSID = "";
+    String bestPassword = "";
+
+    for (int i = 0; i < n; ++i) {
+        String ssid = WiFi.SSID(i);
+        int rssi = WiFi.RSSI(i);
+        Serial.print("SSID: ");Serial.print(ssid);Serial.print(" - RSSI: ");Serial.println(rssi);
+
+        for (auto &cred : m_credentials) {
+            if (ssid == cred.ssid) {
+                if (rssi > bestRSSI) {
+                    bestRSSI = rssi;
+                    bestSSID = cred.ssid;
+                    bestPassword = cred.password;
+                }
+            }
+        }
+    }
+
+    if (bestSSID == "") {
+        Serial.print("no better SSID found. standing on: ");Serial.println(WiFi.SSID());
+        return;
+    }
+
+    if (WiFi.status() == WL_CONNECTED) {
+        int currentRSSI = WiFi.RSSI();
+        if (bestSSID == m_currentSSID) {
+            Serial.print("best ssid is already active: ");Serial.println(WiFi.SSID());
+            return;
+        }
+
+        if ((bestRSSI - currentRSSI) < m_rssiGap) {
+            Serial.print("gap between current ssid and best ssid is:");Serial.println(bestRSSI - currentRSSI);
+            return;
+        }
+
+        Serial.println("Switching to stronger SSID: " + bestSSID);
+        WiFi.disconnect();
+    }
+
+    m_currentSSID = bestSSID;
+    WiFi.begin(bestSSID.c_str(), bestPassword.c_str());
+}
+
+void WiFiManagerNB::onWiFiEvent(WiFiEvent_t event) {
+    switch (event) {
+        case ARDUINO_EVENT_WIFI_STA_CONNECTED:
+            Serial.println("WiFi Connected");
+            break;
+
+        case ARDUINO_EVENT_WIFI_STA_GOT_IP:
+            Serial.println("Got IP: " + WiFi.localIP().toString());
+            break;
+
+        case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
+            Serial.println("WiFi Disconnected");
+            break;
+
+        default:
+            break;
+    }
+}
+
+bool WiFiManagerNB::isConnected() {
+    return WiFi.status() == WL_CONNECTED;
+}
+
+String WiFiManagerNB::getConnectedSSID() {
+    return m_currentSSID;
+}
+
+
+USER QUESTION: Analizza il codice
+
+
+
+------------------------------------------------------------
+--- CONTESTO PROGETTO ESP32 ---
+E' possibile modificare gli oggetti String in char *
+
+--- FILE: ./platformio.ini ---
+;PlatformIO Project Configuration File
+;
+;   Build options: build flags, source filter
+;   Upload options: custom upload port, speed and extra flags
+;   Library options: dependencies, extra library storages
+;   Advanced options: extra scripting
+;
+; Please visit documentation for the other options and examples
+; https://docs.platformio.org/page/projectconf.html
+
+; PlatformIO Project Configuration File
+;
+;   Build options: build flags, source filter
+;   Upload options: custom upload port, speed and extra flags
+;   Library options: dependencies, extra library storages
+;   Advanced options: extra scripting
+;
+; Please visit documentation for the other options and examples
+; https://docs.platformio.org/page/projectconf.html
+
+
+
+; [env:esp32_littleFS]
+[env:esp32]
+    # # sembra funzionare con AzDelivery ESP32-WROOM 32
+    ; platform = espressif32@^6.8.0   #; 6.0.0. or the latest
+------------------------------------------------------------
+
+🚀 Interrogazione gemini-flash-latest...
+
+==================== RISPOSTA ====================
+Il codice che hai fornito implementa un **WiFi Manager non bloccante** per ESP32, progettato per gestire più set di credenziali (multi-SSID) e passare automaticamente alla rete migliore in base alla potenza del segnale (RSSI).
+
+Ecco un'analisi dettagliata suddivisa per punti:
+
+### 1. Architettura e Design
+*   **Approccio Non-Bloccante:** È l'aspetto più positivo. Usando `WiFi.scanNetworks(true)` (asincrono) e una funzione `update()` da chiamare nel `loop()`, il codice permette all'ESP32 di continuare a gestire altri compiti (sensori, display, ecc.) senza fermarsi durante la scansione o il puntamento della connessione.
+*   **Gestione Eventi:** L'uso di `WiFi.onEvent` e di un `s_instance` (Singleton pattern) per reindirizzare gli eventi verso l'istanza della classe è corretto e necessario per gestire gli eventi WiFi in una classe C++.
+*   **Logica di Switching (Roaming):** Implementa una soglia (`rssiGap`) per evitare l'effetto "ping-pong" tra due reti con segnale simile, una tecnica standard chiamata isteresi.
+
+### 2. Analisi dei Punti Critici e Potenziali Bug
+
+#### A. Gestione della scansione in `update()`
+```cpp
+uint32_t interval = connected ? m_scanIntervalWhenConnected : m_scanIntervalWhenNotConnected;
+if (now - m_lastScanTime >= interval) {
+    m_lastScanTime = now;
+    startScan();
+}
+```
+*   **Problema:** Se `m_scanIntervalWhenNotConnected` è breve e la scansione richiede tempo, potresti tentare di avviare una nuova scansione prima che la precedente sia finita. Anche se `startScan()` controlla `scanComplete() == -2`, il timer `m_lastScanTime` viene aggiornato comunque, rischiando di saltare cicli.
+*   **Suggerimento:** Aggiorna `m_lastScanTime` solo quando la scansione viene effettivamente avviata o completata.
+
+#### B. Logica di Connessione in `handleScanResult()`
+```cpp
+if (WiFi.status() == WL_CONNECTED) {
+    // ... logica gap ...
+    Serial.println("Switching to stronger SSID: " + bestSSID);
+    WiFi.disconnect();
+}
+m_currentSSID = bestSSID;
+WiFi.begin(bestSSID.c_str(), bestPassword.c_str());
+```
+*   **Rischio:** Chiamare `WiFi.disconnect()` seguito immediatamente da `WiFi.begin()` su ESP32 a volte può causare instabilità nello stack WiFi se non si attende l'evento di disconnessione.
+*   **Miglioramento:** Sarebbe più sicuro chiamare `WiFi.begin()` direttamente (che internamente gestisce il cambio) o gestire il cambio di stato tramite una piccola macchina a stati.
+
+#### C. Mancanza di gestione BSSID (Roaming vero)
+*   Se hai due Access Point con lo **stesso SSID** (es. una rete mesh o extender), il codice attuale non passerà da uno all'altro perché controlla `if (bestSSID == m_currentSSID)`.
+*   Per supportare il roaming tra AP con lo stesso nome ma segnale diverso, dovresti salvare e confrontare il **BSSID** (l'indirizzo MAC dell'access point).
+
+#### D. Variabile `m_lastConnectedTime`
+*   In `update()`, se non è connesso, controlli `now - m_lastConnectedTime > m_maxWifiTimeout`.
+*   Tuttavia, `m_lastConnectedTime` viene inizializzato a 0. Se l'ESP32 non si è mai connesso dall'accensione, questo timeout scatterà immediatamente dopo `m_maxWifiTimeout` millisecondi, il che è corretto, ma la logica potrebbe sovrapporsi alla scansione periodica.
+
+### 3. Suggerimenti di Miglioramento (Codice)
+
+1.  **Sicurezza dei puntatori:** In `WiFiEventHandler`, aggiungi un controllo se `s_instance` è nullo (anche se lo inizializzi in `init`).
+2.  **Utilizzo di `std::vector`:** Poiché usi `String` dentro la struct nel vector, assicurati che il numero di reti non sia enorme per evitare la frammentazione della memoria (problema minore su ESP32 rispetto a Arduino Uno, ma buono da tenere a mente).
+3.  **Priorità delle reti:** Attualmente scegli solo in base all'RSSI. Potrebbe essere utile aggiungere una priorità manuale (es. "usa sempre la rete di casa se disponibile, anche se il cellulare in hotspot ha più segnale").
+
+### 4. Coerenza con `platformio.ini`
+Il file `platformio.ini` è ben configurato.
+*   L'uso di `build_flags` per includere path esterni è corretto.
+*   L'uso di `monitor_filters = colorize` è ottimo per il debug.
+*   **Nota:** Hai commentato `board_build.filesystem = littlefs`. Se intendi memorizzare le credenziali su file in futuro (invece di hard-coded), dovrai riattivarlo.
+
+### 5. Sintesi
+**Voto: 8/10**
+Il codice è pulito, ben strutturato e risolve il problema del blocco del codice durante la gestione WiFi.
+
+**Cosa fare subito:**
+1.  Verificare se il cambio rete avviene correttamente senza intoppi (testare il passaggio da SSID A a SSID B).
+2.  Valutare se serve il supporto per lo stesso SSID (stesso nome, AP diversi) confrontando i BSSID in `handleScanResult`.
+3.  Aggiungere un `WiFi.persistent(false)` in `init()` per evitare che l'ESP32 scriva continuamente sulla memoria Flash ogni volta che cambi SSID (allungando la vita del chip).
+
+**Esempio di piccola correzione per il BSSID (opzionale):**
+```cpp
+// Nel loop di scansione
+if (ssid == cred.ssid) {
+    if (rssi > bestRSSI) {
+        bestRSSI = rssi;
+        bestSSID = cred.ssid;
+        bestPassword = cred.password;
+        // Salva anche bestBSSID = WiFi.BSSID(i);
+    }
+}
+```

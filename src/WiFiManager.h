@@ -29,8 +29,7 @@ class WiFiManagerNB {
         static WiFiManagerNB* s_instance;
         static void WiFiEventHandler(WiFiEvent_t event, WiFiEventInfo_t info);
 
-        struct WifiCredential
-        {
+        struct WifiCredential {
             String ssid;
             String password;
         };

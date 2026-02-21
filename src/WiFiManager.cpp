@@ -6,11 +6,23 @@
 
 // #include "lnLogger_Class.h"
 
+
 #include "WiFiManager.h"
 
-WiFiManagerNB::WiFiManagerNB() {}
 WiFiManagerNB* WiFiManagerNB::s_instance = nullptr;
 
+WiFiManagerNB::WiFiManagerNB() {
+    s_instance = this;
+}
+
+
+
+// #######################################################################################################
+// # WiFi.persistent(false):
+// #    Inserito in init(). Senza questo, ogni volta che chiami WiFi.begin(),
+// #    l'ESP32 scrive le credenziali nella memoria Flash (NVS). La Flash ha cicli di scrittura limitati;
+// #    disabilitandolo preservi il chip.
+// #######################################################################################################
 void WiFiManagerNB::init(uint32_t scanIntervalWhenConnected, uint32_t scanIntervalWhenNotConnected, uint32_t maxWifiTimeout, int rssiGap) {
     m_scanIntervalWhenConnected = scanIntervalWhenConnected;
     m_scanIntervalWhenNotConnected = scanIntervalWhenNotConnected;
@@ -18,168 +30,187 @@ void WiFiManagerNB::init(uint32_t scanIntervalWhenConnected, uint32_t scanInterv
     m_rssiGap = rssiGap;
 
     WiFi.mode(WIFI_STA);
+    WiFi.persistent(false); // [Punto 5] Evita usura Flash
     WiFi.disconnect(true);
 
-    s_instance = this;
     WiFi.onEvent(WiFiEventHandler);
 
+    m_lastConnectedTime = millis(); // [Punto D] Inizializzazione corretta
     startScan();
 }
 
-
-void WiFiManagerNB::WiFiEventHandler(WiFiEvent_t event, WiFiEventInfo_t info) {
-    if (s_instance) {
-        s_instance->onWiFiEvent(event);
-    }
-}
-
-
-
-
-
-// =======================================================
-//  wifiManager.addSSID("Casetta", "PASSWORD1");
-//  wifiManager.addSSID("SSID2", "PASSWORD2");
-//  wifiManager.addSSID("SSID3", "PASSWORD3");
-// =======================================================
 void WiFiManagerNB::addSSID(const char* ssid, const char* password) {
-    Serial.println(ssid);
     WifiCredential cred;
-    cred.ssid = ssid;
-    cred.password = password;
+    strncpy(cred.ssid, ssid, MAX_SSID_LENGTH - 1);
+    strncpy(cred.password, password, MAX_PASS_LENGTH - 1);
     m_credentials.push_back(cred);
 }
 
+
+
 void WiFiManagerNB::update() {
     uint32_t now = millis();
+    wl_status_t status = WiFi.status();
 
-    bool connected = (WiFi.status() == WL_CONNECTED);
-
-    if (connected) {
+    // Se non siamo connessi, verifichiamo il timeout totale (Punto D)
+    if (status != WL_CONNECTED) {
+        if (now - m_lastConnectedTime > m_maxWifiTimeout) {
+            Serial.println("WiFi: Max timeout reached. Forcing new scan.");
+            m_lastConnectedTime = now;
+            startScan();
+            return;
+        }
+    } else {
         m_lastConnectedTime = now;
     }
-    else {
-        if (now - m_lastConnectedTime > m_maxWifiTimeout) {
-            Serial.println("Max WiFi timeout reached. Restarting scan.");
-            startScan();
-            m_lastConnectedTime = now;
+
+    // --- LOGICA TIMEOUT CONNESSIONE ---
+    // Se abbiamo appena lanciato un WiFi.begin(), aspettiamo 10s prima di scansionare ancora
+    if (status != WL_CONNECTED && m_connectionStartTime > 0) {
+        if (now - m_connectionStartTime < 10000) {
+            return; // Troppo presto, attendi che il tentativo finisca
         }
     }
 
-    uint32_t interval = connected ? m_scanIntervalWhenConnected : m_scanIntervalWhenNotConnected;
+    // Timer scansione periodica
+    uint32_t interval = (status == WL_CONNECTED) ? m_scanIntervalWhenConnected : m_scanIntervalWhenNotConnected;
     if (now - m_lastScanTime >= interval) {
-        m_lastScanTime = now; moved down
         startScan();
     }
 
-    int scanStatus = WiFi.scanComplete();
-    if (scanStatus >= 0) {
+    if (WiFi.scanComplete() >= 0) {
         handleScanResult();
         WiFi.scanDelete();
-        // m_lastScanTime = now; // spostato come suggerito
     }
 }
 
+
+
+// ##################################################################################################################
+// # Il timer m_lastScanTime viene aggiornato solo quando la scansione viene effettivamente lanciata.
+// ##################################################################################################################
 void WiFiManagerNB::startScan() {
-    if (WiFi.scanComplete() == -2) {// no scan running
-        Serial.println("Starting scan....");
-        WiFi.scanNetworks(true); // async
+    // [Punto A] Avvia la scansione solo se non ce n'è una in corso
+    if (WiFi.scanComplete() == -2) {
+        Serial.println("WiFi: Starting async scan...");
+        WiFi.scanNetworks(true);
+        m_lastScanTime = millis(); // Aggiorna il timer qui
     }
 }
+
+
 
 void WiFiManagerNB::handleScanResult() {
     int n = WiFi.scanComplete();
-    if (n <= 0)
-        return;
+    if (n <= 0) return;
+
+    // DEBUG: Mostra cosa abbiamo trovato
+    printScanResults();
 
     int bestRSSI = -1000;
-    String bestSSID = "";
-    String bestPassword = "";
+    int bestIdx = -1;
+    const char* bestPassword = nullptr;
 
     for (int i = 0; i < n; ++i) {
-        String ssid = WiFi.SSID(i);
-        int rssi = WiFi.RSSI(i);
-        Serial.print("SSID: ");Serial.print(ssid);Serial.print(" - RSSI: ");Serial.println(rssi);
-
         for (auto &cred : m_credentials) {
-            if (ssid == cred.ssid) {
-                if (rssi > bestRSSI) {
-                    bestRSSI = rssi;
-                    bestSSID = cred.ssid;
+            if (strcmp(WiFi.SSID(i).c_str(), cred.ssid) == 0) {
+                if (WiFi.RSSI(i) > bestRSSI) {
+                    bestRSSI = WiFi.RSSI(i);
+                    bestIdx = i;
                     bestPassword = cred.password;
                 }
             }
         }
     }
 
-    if (bestSSID == "") {
-        Serial.print("no better SSID found. standing on: ");Serial.println(WiFi.SSID());
-        return;
-    }
+    if (bestIdx == -1) return;
 
     if (WiFi.status() == WL_CONNECTED) {
         int currentRSSI = WiFi.RSSI();
-        // Se la rete migliore è quella a cui sono già connesso (stesso SSID)
-        if (bestSSID == WiFi.SSID()) {
-            // Se il guadagno non è sufficiente, non fare nulla
-            if ((bestRSSI - currentRSSI) < m_rssiGap) {
-                return;
-            }
-            // Se arrivo qui, ho trovato un AP con lo STESSO SSID ma segnale molto più forte
-            Serial.println("Switching to stronger AP with same SSID");
-        } else {
-            // Se è un SSID diverso, procedo comunque con il controllo del gap
-            if ((bestRSSI - currentRSSI) < m_rssiGap) {
+
+        // --- FIX SICUREZZA ---
+        uint8_t* currentBSSID = WiFi.BSSID();
+        uint8_t* targetBSSID = WiFi.BSSID(bestIdx);
+
+        // Se uno dei due è nullo, non possiamo confrontarli in sicurezza
+        if (currentBSSID != nullptr && targetBSSID != nullptr) {
+            if (memcmp(targetBSSID, currentBSSID, 6) == 0) {
+                // Siamo già sull'AP migliore di questa rete
                 return;
             }
         }
-        WiFi.disconnect();
-    }
 
-
-/*    if (WiFi.status() == WL_CONNECTED) {
-        int currentRSSI = WiFi.RSSI();
-        if (bestSSID == m_currentSSID) {
-            Serial.print("best ssid is already active: ");Serial.println(WiFi.SSID());
-            return;
-        }
-
+        // Controllo Gap
         if ((bestRSSI - currentRSSI) < m_rssiGap) {
-            Serial.print("gap between current ssid and best ssid is:");Serial.println(bestRSSI - currentRSSI);
             return;
         }
 
-        Serial.println("Switching to stronger SSID: " + bestSSID);
-        WiFi.disconnect();
+        Serial.printf("WiFi: Switching to better AP (%s) RSSI: %d (Gap: %d)\n",
+                      WiFi.SSID(bestIdx).c_str(), bestRSSI, bestRSSI - currentRSSI);
     }
-*/
-    m_currentSSID = bestSSID;
-    WiFi.begin(bestSSID.c_str(), bestPassword.c_str());
+
+    // Aggiorna e connetti
+    strncpy(m_currentSSID, WiFi.SSID(bestIdx).c_str(), MAX_SSID_LEN - 1);
+    WiFi.begin(m_currentSSID, bestPassword);
 }
 
-void WiFiManagerNB::onWiFiEvent(WiFiEvent_t event) {
-    switch (event) {
-        case ARDUINO_EVENT_WIFI_STA_CONNECTED:
-            Serial.println("WiFi Connected");
-            break;
 
-        case ARDUINO_EVENT_WIFI_STA_GOT_IP:
-            Serial.println("Got IP: " + WiFi.localIP().toString());
-            break;
 
-        case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:
-            Serial.println("WiFi Disconnected");
-            break;
 
-        default:
-            break;
+void WiFiManagerNB::WiFiEventHandler(WiFiEvent_t event, WiFiEventInfo_t info) {
+
+    if (s_instance != nullptr) {
+        // Inoltra l'evento alla funzione di istanza (se vuoi gestirli lì)
+        // s_instance->onWiFiEvent(event);
+
+        // Oppure gestisci direttamente qui i log comuni:
+        const char* eventName = "UNKNOWN";
+        switch (event) {
+            case ARDUINO_EVENT_WIFI_READY:           eventName = "WIFI_READY"; break;
+            case ARDUINO_EVENT_WIFI_SCAN_DONE:       eventName = "SCAN_DONE"; break;
+            case ARDUINO_EVENT_WIFI_STA_START:       eventName = "STA_START"; break;
+            case ARDUINO_EVENT_WIFI_STA_STOP:        eventName = "STA_STOP"; break;
+            case ARDUINO_EVENT_WIFI_STA_CONNECTED:   eventName = "STA_CONNECTED"; break;
+            case ARDUINO_EVENT_WIFI_STA_DISCONNECTED:eventName = "STA_DISCONNECTED"; break;
+            case ARDUINO_EVENT_WIFI_STA_GOT_IP:      eventName = "STA_GOT_IP"; break;
+            case ARDUINO_EVENT_WIFI_STA_LOST_IP:     eventName = "STA_LOST_IP"; break;
+            default: break;
+        }
+
+        Serial.printf("WiFi Event: %s (%d)\n", eventName, (int)event);
+        if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
+            Serial.print("WiFi: Got IP ");
+            Serial.println(WiFi.localIP());
+        }
     }
 }
 
-bool WiFiManagerNB::isConnected() {
-    return WiFi.status() == WL_CONNECTED;
+
+// Questa versione confronta ogni rete trovata con quelle nella tua lista m_credentials. S
+// e c'è un match, aggiunge un indicatore visivo.
+void WiFiManagerNB::printScanResults() {
+    int n = WiFi.scanComplete();
+    if (n < 0) return;
+
+    Serial.println("\n--- WiFi Scan Results ---");
+    for (int i = 0; i < n; ++i) {
+        bool isSaved = false;
+        for (auto &cred : m_credentials) {
+            if (WiFi.SSID(i) == cred.ssid) {
+                isSaved = true;
+                break;
+            }
+        }
+
+        Serial.printf("%s %-20s RSSI: %d dBm %s\n",
+            isSaved ? "[*]" : "[ ]",      // Asterisco se la rete è salvata
+            WiFi.SSID(i).c_str(),
+            WiFi.RSSI(i),
+            (WiFi.status() == WL_CONNECTED && WiFi.SSID(i) == WiFi.SSID()) ? "<-- ACTIVE" : ""
+        );
+    }
+    Serial.println("--------------------------\n");
 }
 
-String WiFiManagerNB::getConnectedSSID() {
-    return m_currentSSID;
-}
+bool WiFiManagerNB::isConnected() { return WiFi.status() == WL_CONNECTED; }
+const char* WiFiManagerNB::getConnectedSSID() { return m_currentSSID; }

@@ -351,4 +351,70 @@ String WiFiManagerNB::getConnectedSSID() {
 }
 
 
-USER QUESTION: Analizza il codice
+########################################
+USER QUESTION:
+########################################
+
+1. modificare String in char *
+2. seguono possibili errori, possiamo correggerli?
+
+
+```cpp
+uint32_t interval = connected ? m_scanIntervalWhenConnected : m_scanIntervalWhenNotConnected;
+if (now - m_lastScanTime >= interval) {
+    m_lastScanTime = now;
+    startScan();
+}
+```
+*   **Problema:** Se `m_scanIntervalWhenNotConnected` è breve e la scansione richiede tempo, potresti tentare di avviare una nuova scansione prima che la precedente sia finita. Anche se `startScan()` controlla `scanComplete() == -2`, il timer `m_lastScanTime` viene aggiornato comunque, rischiando di saltare cicli.
+*   **Suggerimento:** Aggiorna `m_lastScanTime` solo quando la scansione viene effettivamente avviata o completata.
+
+#### B. Logica di Connessione in `handleScanResult()`
+```cpp
+if (WiFi.status() == WL_CONNECTED) {
+    // ... logica gap ...
+    Serial.println("Switching to stronger SSID: " + bestSSID);
+    WiFi.disconnect();
+}
+m_currentSSID = bestSSID;
+WiFi.begin(bestSSID.c_str(), bestPassword.c_str());
+```
+*   **Rischio:** Chiamare `WiFi.disconnect()` seguito immediatamente da `WiFi.begin()` su ESP32 a volte può causare instabilità nello stack WiFi se non si attende l'evento di disconnessione.
+*   **Miglioramento:** Sarebbe più sicuro chiamare `WiFi.begin()` direttamente (che internamente gestisce il cambio) o gestire il cambio di stato tramite una piccola macchina a stati.
+
+#### C. Mancanza di gestione BSSID (Roaming vero)
+*   Se hai due Access Point con lo **stesso SSID** (es. una rete mesh o extender), il codice attuale non passerà da uno all'altro perché controlla `if (bestSSID == m_currentSSID)`.
+*   Per supportare il roaming tra AP con lo stesso nome ma segnale diverso, dovresti salvare e confrontare il **BSSID** (l'indirizzo MAC dell'access point).
+
+#### D. Variabile `m_lastConnectedTime`
+*   In `update()`, se non è connesso, controlli `now - m_lastConnectedTime > m_maxWifiTimeout`.
+*   Tuttavia, `m_lastConnectedTime` viene inizializzato a 0. Se l'ESP32 non si è mai connesso dall'accensione, questo timeout scatterà immediatamente dopo `m_maxWifiTimeout` millisecondi, il che è corretto, ma la logica potrebbe sovrapporsi alla scansione periodica.
+
+### 3. Suggerimenti di Miglioramento (Codice)
+
+1.  **Sicurezza dei puntatori:** In `WiFiEventHandler`, aggiungi un controllo se `s_instance` è nullo (anche se lo inizializzi in `init`).
+2.  **Utilizzo di `std::vector`:** Poiché usi `String` dentro la struct nel vector, assicurati che il numero di reti non sia enorme per evitare la frammentazione della memoria (problema minore su ESP32 rispetto a Arduino Uno, ma buono da tenere a mente).
+3.  **Priorità delle reti:** Attualmente scegli solo in base all'RSSI. Potrebbe essere utile aggiungere una priorità manuale (es. "usa sempre la rete di casa se disponibile, anche se il cellulare in hotspot ha più segnale").
+
+
+
+### 5. Sintesi
+**Voto: 8/10**
+Il codice è pulito, ben strutturato e risolve il problema del blocco del codice durante la gestione WiFi.
+
+**Cosa fare subito:**
+1.  Verificare se il cambio rete avviene correttamente senza intoppi (testare il passaggio da SSID A a SSID B).
+2.  Valutare se serve il supporto per lo stesso SSID (stesso nome, AP diversi) confrontando i BSSID in `handleScanResult`.
+3.  Aggiungere un `WiFi.persistent(false)` in `init()` per evitare che l'ESP32 scriva continuamente sulla memoria Flash ogni volta che cambi SSID (allungando la vita del chip).
+
+**Esempio di piccola correzione per il BSSID (opzionale):**
+```cpp
+// Nel loop di scansione
+if (ssid == cred.ssid) {
+    if (rssi > bestRSSI) {
+        bestRSSI = rssi;
+        bestSSID = cred.ssid;
+        bestPassword = cred.password;
+        // Salva anche bestBSSID = WiFi.BSSID(i);
+    }
+}

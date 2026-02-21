@@ -332,3 +332,110 @@ String WiFiManagerNB::getConnectedSSID() {
 
 
 USER QUESTION: E' possibile modificare gli oggetti String in char * ed effettuare le modifiche che ritieni critiche nel codice ritornami il codice modificato?
+
+
+==================== RISPOSTA ====================
+Il codice che hai presentato è una buona base per un **WiFi Manager non-blocking** su ESP32, capace di gestire più credenziali e di fare "roaming" (passare alla rete più forte).
+
+Ecco un'analisi dettagliata suddivisa per punti di forza, potenziali bug e suggerimenti di miglioramento.
+
+### 1. Punti di Forza (Pro)
+*   **Non-blocking**: L'uso di `WiFi.scanNetworks(true)` (asincrono) è eccellente perché non blocca l'esecuzione del resto del programma (il loop principale).
+*   **Gestione Eventi**: L'uso di `WiFi.onEvent` è il modo corretto di gestire lo stato della connessione su ESP32, rendendo il codice più reattivo.
+*   **Logica di Roaming**: L'introduzione di `m_rssiGap` è fondamentale per evitare l'"effetto rimbalzo" (ping-pong) tra due reti con segnale simile.
+*   **Flessibilità**: Permette di aggiungere più SSID, utile per dispositivi che si spostano tra casa, ufficio o hotspot mobile.
+
+---
+
+### 2. Criticità e Potenziali Bug
+
+#### A. Il problema del "Same SSID" (Roaming AP-to-AP)
+Nel metodo `handleScanResult`:
+```cpp
+if (bestSSID == m_currentSSID) {
+    Serial.print("best ssid is already active: ");Serial.println(WiFi.SSID());
+    return;
+}
+```
+Se hai un sistema Mesh o più Access Point con lo **stesso identico SSID**, questo codice **non effettuerà mai il roaming** verso l'AP più forte. Per risolvere, dovresti confrontare l'indirizzo MAC (**BSSID**) invece del semplice nome SSID.
+
+#### B. Errore di compilazione/logica in `update()`
+Nel file `.cpp` leggo:
+```cpp
+m_lastScanTime = now; moved down // <--- Errore di sintassi
+```
+Oltre al testo "moved down" che rompe la compilazione, se resetti `m_lastScanTime` all'inizio del blocco `if (now - m_lastScanTime >= interval)`, ma poi lo sovrascrivi o lo gestisci male sotto, lo scan potrebbe attivarsi a intervalli irregolari.
+
+#### C. Gestione dello stato "In connessione"
+Il metodo `handleScanResult` chiama `WiFi.begin()`. Tuttavia, se `WiFi.begin()` è già stato chiamato e l'ESP32 sta cercando di connettersi, chiamarlo di nuovo interrompe il processo precedente.
+*   **Rischio**: Se lo scan finisce mentre l'ESP32 sta ancora tentando di autenticarsi, potresti entrare in un loop di disconnessioni. Bisognerebbe controllare se `WiFi.status() == WL_IDLE_STATUS` o se c'è un flag `m_isConnecting`.
+
+#### D. Reset del timeout
+In `update()`:
+```cpp
+if (now - m_lastConnectedTime > m_maxWifiTimeout) {
+    startScan();
+    m_lastConnectedTime = now;
+}
+```
+Se non c'è nessuna rete conosciuta nell'area, questo blocco continuerà a resettare il timer e a far partire scan a vuoto ogni `m_maxWifiTimeout` millisecondi, sovrapponendosi potenzialmente agli intervalli di scan standard.
+
+---
+
+### 3. Suggerimenti di Miglioramento
+
+#### 1. Supporto BSSID (Roaming vero)
+Per gestire AP multipli con lo stesso SSID, salva il BSSID della connessione attuale:
+```cpp
+// Nel .h
+uint8_t m_currentBSSID[6];
+
+// Nel .cpp handleScanResult
+uint8_t* bestBSSID = WiFi.BSSID(i);
+// ... confronto tra bestBSSID e m_currentBSSID ...
+```
+
+#### 2. Logica di Scan più robusta
+In `update()`, è meglio gestire lo stato dello scan in modo più granulare:
+1.  Se non connesso e non in scansione -> `startScan()`.
+2.  Se connesso e l'intervallo è passato -> `startScan()`.
+3.  Quando `scanComplete >= 0` -> elabora i risultati.
+
+#### 3. Ottimizzazione `platformio.ini`
+Hai incluso `fbiego/ESP32Time @ ^2.0.6`, ma non sembra usata nel manager. Se non serve per il timestamp dei log, puoi rimuoverla per risparmiare spazio.
+Inoltre, il flag `-I /home/loreto/...` rende il progetto **non portabile**. Se qualcun altro scarica il codice, non compilerà. Usa cartelle relative al progetto (es. `include/`).
+
+#### 4. Pulizia automatica `WiFi.scanDelete()`
+Chiamare `WiFi.scanDelete()` è corretto per liberare memoria RAM dopo ogni scansione, ma assicurati che venga chiamato *sempre* dopo `handleScanResult()`.
+
+---
+
+### 4. Esempio di fix per il Roaming (Logica suggerita)
+
+Sostituisci la parte di confronto in `handleScanResult` con questa logica:
+
+```cpp
+if (WiFi.status() == WL_CONNECTED) {
+    int currentRSSI = WiFi.RSSI();
+    // Se la rete migliore è quella a cui sono già connesso (stesso SSID)
+    if (bestSSID == WiFi.SSID()) {
+        // Se il guadagno non è sufficiente, non fare nulla
+        if ((bestRSSI - currentRSSI) < m_rssiGap) {
+            return; 
+        }
+        // Se arrivo qui, ho trovato un AP con lo STESSO SSID ma segnale molto più forte
+        Serial.println("Switching to stronger AP with same SSID");
+    } else {
+        // Se è un SSID diverso, procedo comunque con il controllo del gap
+        if ((bestRSSI - currentRSSI) < m_rssiGap) {
+            return;
+        }
+    }
+    WiFi.disconnect();
+}
+```
+
+### Conclusione
+Il codice è ben scritto e segue le best-practices per ESP32 (uso di `vector`, eventi, asincronia). Una volta sistemato il piccolo errore di sintassi in `update()` e raffinata la logica di confronto degli SSID (per gestire mesh/ripetitori), sarà un componente molto solido.
+
+**Voto attuale: 7.5/10** (Diventa 9/10 con la gestione del roaming BSSID e la pulizia dei timer).

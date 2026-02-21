@@ -15,24 +15,16 @@
 
 // --- CREDENTIALS
 #include <esp32_ssid_credentials.h>
-// #include <lnEsp32Orto_Bot.h>
-// #include <ssid_casetta.h>
 
-// const char* ssid = casettaSSID;
-// const char* password = casettaPassword;
-// #define BOTtoken lnEsp32Orto_token
-// #define BOTchatid lnEsp32Orto_chatid
 //
 WiFiManagerNB wifiManager;
 
 void setup() {
     Serial.begin(115200);
 
-    for (int8_t i; i<loretoNetworksCount; i++) {
-        // wifiManager.addSSID("SSID2", "PASSWORD2");
+    // - prima dell'init()
+    for (int8_t i = 0; i < loretoNetworksCount; i++) {
         wifiManager.addSSID(loretoNetworks[i].ssid, loretoNetworks[i].password);
-        // const char *ssid =    loretoNetworks[i].ssid;
-        // const char *password = loretoNetworks[i].password;
     }
 
     wifiManager.init(

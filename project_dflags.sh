@@ -23,6 +23,8 @@ ln_ESP32_WROOM_32E_MODULE_2RELAY=2
 
 myFlags=""
 
+
+
 myFlags="${myFlags} -DLOG_LEVEL_NONE=${LOG_LEVEL_MAP["none"]}"
 myFlags="${myFlags} -DLOG_LEVEL_ERROR=${LOG_LEVEL_MAP["error"]}"
 myFlags="${myFlags} -DLOG_LEVEL_WARN=${LOG_LEVEL_MAP["warn"]}"

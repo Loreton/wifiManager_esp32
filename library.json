@@ -1,0 +1,16 @@
+{
+  "name": "wifiManager",
+  "version": "1.0.0",
+  "description": "Custom wifiManager library for ESP32 projects.",
+  "keywords": ["wifi", "manager"],
+  "authors": [
+    {
+      "name": "Loreto",
+      "email": "tu@email.com"
+    }
+  ],
+  "license": "MIT",
+    "build": {
+    "flags": ""
+  }
+}

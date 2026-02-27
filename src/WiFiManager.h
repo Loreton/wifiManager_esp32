@@ -23,10 +23,14 @@
 class WiFiManagerNB {
     public:
         WiFiManagerNB();
-        void init(uint32_t scanIntervalWhenConnected,
-                  uint32_t scanIntervalWhenNotConnected,
-                  uint32_t maxWifiTimeout,
-                  int rssiGap);
+        // void init(uint32_t scanIntervalWhenConnected,
+        //           uint32_t scanIntervalWhenNotConnected,
+        //           uint32_t maxWifiTimeout,
+        //           int rssiGap);
+        void init(uint16_t scanIntervalWhenConnected,   // seconds
+                  uint16_t scanIntervalWhenNotConnected, // seconds
+                  uint16_t maxWifiTimeout, // seconds - Force new scan
+                  int8_t rssiGap); // number
 
         void update();
         void addSSID(const char* ssid, const char* password);

@@ -7,11 +7,13 @@
 
 #include <Arduino.h>
 
+// #define LOG_MODULE_LEVEL LOG_MODULE_INFO
+#include "lnLogger_Class.h"
 
 // --- Project
 #define  __I_AM_MAIN_CPP__
 #include "WiFiManager.h"
-// #include "lnLogger_Class.h"
+
 
 // --- CREDENTIALS
 #include <esp32_ssid_credentials.h>
@@ -21,6 +23,7 @@ WiFiManagerNB wifiManager;
 
 void setup() {
     Serial.begin(115200);
+    lnLog.init(128, 20);  // line_buffer_len, filename_buffer_len
 
     // - prima dell'init()
     for (int8_t i = 0; i < loretoNetworksCount; i++) {
@@ -28,9 +31,9 @@ void setup() {
     }
 
     wifiManager.init(
-        30000,   // scan ogni 30s se connesso
-        10000,   // scan ogni 10s se non connesso
-        60000,  // timeout max 5 minuti (5*60*1000)
+        60,   // scan ogni 60s se connesso
+        30,   // scan ogni 30s se non connesso
+        5*60,  // timeout max 5 minuti (5*60)
         8        // rssi gap
     );
 }

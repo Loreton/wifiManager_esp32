@@ -4,10 +4,12 @@
 //
 
 
-// #include "lnLogger_Class.h"
-
+// #include "lnLogger_LEVELS.h"
+// #define LOG_MODULE_LEVEL LOG_LEVEL_DEBUG
+#include "lnLogger_Class.h"
 
 #include "WiFiManager.h"
+
 
 WiFiManagerNB* WiFiManagerNB::s_instance = nullptr;
 
@@ -23,10 +25,16 @@ WiFiManagerNB::WiFiManagerNB() {
 // #    l'ESP32 scrive le credenziali nella memoria Flash (NVS). La Flash ha cicli di scrittura limitati;
 // #    disabilitandolo preservi il chip.
 // #######################################################################################################
-void WiFiManagerNB::init(uint32_t scanIntervalWhenConnected, uint32_t scanIntervalWhenNotConnected, uint32_t maxWifiTimeout, int rssiGap) {
-    m_scanIntervalWhenConnected = scanIntervalWhenConnected;
-    m_scanIntervalWhenNotConnected = scanIntervalWhenNotConnected;
-    m_maxWifiTimeout = maxWifiTimeout;
+// void WiFiManagerNB::init(uint32_t scanIntervalWhenConnected, uint32_t scanIntervalWhenNotConnected, uint32_t maxWifiTimeout, int rssiGap) {
+//     m_scanIntervalWhenConnected = scanIntervalWhenConnected;
+//     m_scanIntervalWhenNotConnected = scanIntervalWhenNotConnected;
+//     m_maxWifiTimeout = maxWifiTimeout;
+//     m_rssiGap = rssiGap;
+
+void WiFiManagerNB::init(uint16_t scanIntervalWhenConnected, uint16_t scanIntervalWhenNotConnected, uint16_t maxWifiTimeout, int8_t rssiGap) {
+    m_scanIntervalWhenConnected = scanIntervalWhenConnected*1000;
+    m_scanIntervalWhenNotConnected = scanIntervalWhenNotConnected*1000;
+    m_maxWifiTimeout = maxWifiTimeout*1000;
     m_rssiGap = rssiGap;
 
     WiFi.mode(WIFI_STA);
@@ -37,6 +45,8 @@ void WiFiManagerNB::init(uint32_t scanIntervalWhenConnected, uint32_t scanInterv
 
     m_lastConnectedTime = millis(); // [Punto D] Inizializzazione corretta
     startScan();
+    // Serial.printf("LOG_MODULE_LEVEL: %d", LOG_MODULE_LEVEL);
+    // Serial.printf("LOG_LEVEL_INFO: %d", LOG_LEVEL_INFO);
 }
 
 void WiFiManagerNB::addSSID(const char* ssid, const char* password) {
@@ -55,7 +65,7 @@ void WiFiManagerNB::update() {
     // Se non siamo connessi, verifichiamo il timeout totale (Punto D)
     if (status != WL_CONNECTED) {
         if (now - m_lastConnectedTime > m_maxWifiTimeout) {
-            Serial.println("WiFi: Max timeout reached. Forcing new scan.");
+            lnLOG_WARNING("WiFi: Max timeout reached. Forcing new scan.");
             m_lastConnectedTime = now;
             startScan();
             return;
@@ -92,7 +102,8 @@ void WiFiManagerNB::update() {
 void WiFiManagerNB::startScan() {
     // [Punto A] Avvia la scansione solo se non ce n'è una in corso
     if (WiFi.scanComplete() == -2) {
-        Serial.println("WiFi: Starting async scan...");
+        // Serial.println("WiFi: Starting async scan...");
+        lnLOG_NOTIFY("WiFi: Starting async scan...");
         WiFi.scanNetworks(true);
         m_lastScanTime = millis(); // Aggiorna il timer qui
     }
@@ -145,7 +156,9 @@ void WiFiManagerNB::handleScanResult() {
             return;
         }
 
-        Serial.printf("WiFi: Switching to better AP (%s) RSSI: %d (Gap: %d)\n",
+        // Serial.printf("WiFi: Switching to better AP (%s) RSSI: %d (Gap: %d)\n",
+        //               WiFi.SSID(bestIdx).c_str(), bestRSSI, bestRSSI - currentRSSI);
+        lnLOG_INFO("WiFi: Switching to better AP (%s) RSSI: %d (Gap: %d)",
                       WiFi.SSID(bestIdx).c_str(), bestRSSI, bestRSSI - currentRSSI);
     }
 
@@ -177,10 +190,12 @@ void WiFiManagerNB::WiFiEventHandler(WiFiEvent_t event, WiFiEventInfo_t info) {
             default: break;
         }
 
-        Serial.printf("WiFi Event: %s (%d)\n", eventName, (int)event);
+        // Serial.printf("WiFi Event: %s (%d)\n", eventName, (int)event);
+        lnLOG_NOTIFY("WiFi Event: %s (%d)", eventName, (int)event);
         if (event == ARDUINO_EVENT_WIFI_STA_GOT_IP) {
-            Serial.print("WiFi: Got IP ");
-            Serial.println(WiFi.localIP());
+            // Serial.print("WiFi: Got IP ");
+            // Serial.println(WiFi.localIP());
+            lnLOG_INFO("WiFi: Got IP %s", WiFi.localIP().toString().c_str());
         }
     }
 }
@@ -192,7 +207,8 @@ void WiFiManagerNB::printScanResults() {
     int n = WiFi.scanComplete();
     if (n < 0) return;
 
-    Serial.println("\n--- WiFi Scan Results ---");
+    // Serial.println("\n--- WiFi Scan Results ---");
+    lnLOG_DEBUG("--- WiFi Scan Results ---");
     for (int i = 0; i < n; ++i) {
         bool isSaved = false;
         for (auto &cred : m_credentials) {
@@ -202,14 +218,16 @@ void WiFiManagerNB::printScanResults() {
             }
         }
 
-        Serial.printf("%s %-20s RSSI: %d dBm %s\n",
+        // Serial.printf("%s %-20s RSSI: %d dBm %s\n",
+        lnLOG_DEBUG("%s %-20s RSSI: %d dBm %s",
             isSaved ? "[*]" : "[ ]",      // Asterisco se la rete è salvata
             WiFi.SSID(i).c_str(),
             WiFi.RSSI(i),
             (WiFi.status() == WL_CONNECTED && WiFi.SSID(i) == WiFi.SSID()) ? "<-- ACTIVE" : ""
         );
     }
-    Serial.println("--------------------------\n");
+    // Serial.println("--------------------------\n");
+    lnLOG_INFO("--------------------------");
 }
 
 bool WiFiManagerNB::isConnected() { return WiFi.status() == WL_CONNECTED; }

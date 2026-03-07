@@ -16,7 +16,7 @@
 
 
 // --- CREDENTIALS
-#include <esp32_ssid_credentials.h>
+#include <ssid_credentials_esp32.h>
 
 //
 WiFiManagerNB wifiManager;

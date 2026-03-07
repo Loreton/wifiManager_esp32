@@ -20,9 +20,9 @@
 
 
 
-class WiFiManagerNB {
+class lnWiFiManagerNB {
     public:
-        WiFiManagerNB();
+        lnWiFiManagerNB();
         // void init(uint32_t scanIntervalWhenConnected,
         //           uint32_t scanIntervalWhenNotConnected,
         //           uint32_t maxWifiTimeout,
@@ -39,7 +39,7 @@ class WiFiManagerNB {
         void printScanResults(); // Funzione di debug
 
     private:
-        static WiFiManagerNB* s_instance;
+        static lnWiFiManagerNB* s_instance;
         static void WiFiEventHandler(WiFiEvent_t event, WiFiEventInfo_t info);
 
         struct WifiCredential {

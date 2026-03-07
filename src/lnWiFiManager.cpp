@@ -8,12 +8,12 @@
 // #define LOG_MODULE_LEVEL LOG_LEVEL_DEBUG
 #include "lnLogger_Class.h"
 
-#include "WiFiManager.h"
+#include "lnWiFiManager.h"
 
 
-WiFiManagerNB* WiFiManagerNB::s_instance = nullptr;
+lnWiFiManagerNB* lnWiFiManagerNB::s_instance = nullptr;
 
-WiFiManagerNB::WiFiManagerNB() {
+lnWiFiManagerNB::lnWiFiManagerNB() {
     s_instance = this;
 }
 
@@ -25,13 +25,13 @@ WiFiManagerNB::WiFiManagerNB() {
 // #    l'ESP32 scrive le credenziali nella memoria Flash (NVS). La Flash ha cicli di scrittura limitati;
 // #    disabilitandolo preservi il chip.
 // #######################################################################################################
-// void WiFiManagerNB::init(uint32_t scanIntervalWhenConnected, uint32_t scanIntervalWhenNotConnected, uint32_t maxWifiTimeout, int rssiGap) {
+// void lnWiFiManagerNB::init(uint32_t scanIntervalWhenConnected, uint32_t scanIntervalWhenNotConnected, uint32_t maxWifiTimeout, int rssiGap) {
 //     m_scanIntervalWhenConnected = scanIntervalWhenConnected;
 //     m_scanIntervalWhenNotConnected = scanIntervalWhenNotConnected;
 //     m_maxWifiTimeout = maxWifiTimeout;
 //     m_rssiGap = rssiGap;
 
-void WiFiManagerNB::init(uint16_t scanIntervalWhenConnected, uint16_t scanIntervalWhenNotConnected, uint16_t maxWifiTimeout, int8_t rssiGap) {
+void lnWiFiManagerNB::init(uint16_t scanIntervalWhenConnected, uint16_t scanIntervalWhenNotConnected, uint16_t maxWifiTimeout, int8_t rssiGap) {
     m_scanIntervalWhenConnected = scanIntervalWhenConnected*1000;
     m_scanIntervalWhenNotConnected = scanIntervalWhenNotConnected*1000;
     m_maxWifiTimeout = maxWifiTimeout*1000;
@@ -49,7 +49,7 @@ void WiFiManagerNB::init(uint16_t scanIntervalWhenConnected, uint16_t scanInterv
     // Serial.printf("LOG_LEVEL_INFO: %d", LOG_LEVEL_INFO);
 }
 
-void WiFiManagerNB::addSSID(const char* ssid, const char* password) {
+void lnWiFiManagerNB::addSSID(const char* ssid, const char* password) {
     WifiCredential cred;
     strncpy(cred.ssid, ssid, MAX_SSID_LENGTH - 1);
     strncpy(cred.password, password, MAX_PASS_LENGTH - 1);
@@ -58,7 +58,7 @@ void WiFiManagerNB::addSSID(const char* ssid, const char* password) {
 
 
 
-void WiFiManagerNB::update() {
+void lnWiFiManagerNB::update() {
     uint32_t now = millis();
     wl_status_t status = WiFi.status();
 
@@ -99,7 +99,7 @@ void WiFiManagerNB::update() {
 // ##################################################################################################################
 // # Il timer m_lastScanTime viene aggiornato solo quando la scansione viene effettivamente lanciata.
 // ##################################################################################################################
-void WiFiManagerNB::startScan() {
+void lnWiFiManagerNB::startScan() {
     // [Punto A] Avvia la scansione solo se non ce n'è una in corso
     if (WiFi.scanComplete() == -2) {
         // Serial.println("WiFi: Starting async scan...");
@@ -111,7 +111,7 @@ void WiFiManagerNB::startScan() {
 
 
 
-void WiFiManagerNB::handleScanResult() {
+void lnWiFiManagerNB::handleScanResult() {
     int n = WiFi.scanComplete();
     if (n <= 0) return;
 
@@ -170,7 +170,7 @@ void WiFiManagerNB::handleScanResult() {
 
 
 
-void WiFiManagerNB::WiFiEventHandler(WiFiEvent_t event, WiFiEventInfo_t info) {
+void lnWiFiManagerNB::WiFiEventHandler(WiFiEvent_t event, WiFiEventInfo_t info) {
 
     if (s_instance != nullptr) {
         // Inoltra l'evento alla funzione di istanza (se vuoi gestirli lì)
@@ -203,7 +203,7 @@ void WiFiManagerNB::WiFiEventHandler(WiFiEvent_t event, WiFiEventInfo_t info) {
 
 // Questa versione confronta ogni rete trovata con quelle nella tua lista m_credentials. S
 // e c'è un match, aggiunge un indicatore visivo.
-void WiFiManagerNB::printScanResults() {
+void lnWiFiManagerNB::printScanResults() {
     int n = WiFi.scanComplete();
     if (n < 0) return;
 
@@ -230,5 +230,5 @@ void WiFiManagerNB::printScanResults() {
     lnLOG_INFO("--------------------------");
 }
 
-bool WiFiManagerNB::isConnected() { return WiFi.status() == WL_CONNECTED; }
-const char* WiFiManagerNB::getConnectedSSID() { return m_currentSSID; }
+bool lnWiFiManagerNB::isConnected() { return WiFi.status() == WL_CONNECTED; }
+const char* lnWiFiManagerNB::getConnectedSSID() { return m_currentSSID; }

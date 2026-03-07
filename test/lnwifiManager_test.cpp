@@ -12,14 +12,14 @@
 
 // --- Project
 #define  __I_AM_MAIN_CPP__
-#include "WiFiManager.h"
+#include "lnWiFiManager.h"
 
 
 // --- CREDENTIALS
 #include <ssid_credentials_esp32.h>
 
 //
-WiFiManagerNB wifiManager;
+lnWiFiManagerNB wifiManager;
 
 void setup() {
     Serial.begin(115200);
